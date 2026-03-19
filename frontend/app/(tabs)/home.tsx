@@ -135,7 +135,7 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.logo}>Viralo TV</Text>
+        <Text style={styles.logo}>Innovana TV</Text>
       </View>
 
       <FlatList

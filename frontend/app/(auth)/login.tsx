@@ -45,7 +45,7 @@ export default function LoginScreen() {
         style={styles.keyboardView}
       >
         <View style={styles.content}>
-          <Text style={styles.title}>Viralo TV</Text>
+          <Text style={styles.title}>Innovana TV</Text>
           <Text style={styles.subtitle}>Sign in to continue</Text>
 
           <TextInput

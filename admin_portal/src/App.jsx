@@ -40,7 +40,7 @@ function App() {
       <div>
         <nav className="nav">
           <div className="nav-container">
-            <h2 style={{ color: '#e50914' }}>Viralo TV Admin</h2>
+            <h2 style={{ color: '#e50914' }}>Innovana TV Admin</h2>
             <ul className="nav-links">
               <li><Link to="/">Dashboard</Link></li>
               <li><Link to="/videos">Videos</Link></li>

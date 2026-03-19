@@ -28,7 +28,7 @@ function Login({ onLogin }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
       <div className="card" style={{ maxWidth: '400px', width: '100%' }}>
-        <h2 style={{ color: '#e50914', marginBottom: '24px', textAlign: 'center' }}>Viralo TV Admin</h2>
+        <h2 style={{ color: '#e50914', marginBottom: '24px', textAlign: 'center' }}>Innovana TV Admin</h2>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Email</label>

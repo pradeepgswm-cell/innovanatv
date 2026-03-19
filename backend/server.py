@@ -30,7 +30,7 @@ ACCESS_TOKEN_EXPIRE_DAYS = 30
 security = HTTPBearer()
 
 # Create the main app
-app = FastAPI(title="Viralo TV API")
+app = FastAPI(title="Innovana TV API")
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")

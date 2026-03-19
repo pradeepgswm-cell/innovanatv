@@ -59,7 +59,7 @@ export default function RegisterScreen() {
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.content}>
-            <Text style={styles.title}>Viralo TV</Text>
+            <Text style={styles.title}>Innovana TV</Text>
             <Text style={styles.subtitle}>Create your account</Text>
 
             <TextInput
