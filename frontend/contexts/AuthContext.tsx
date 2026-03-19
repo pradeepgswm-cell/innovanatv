@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import storage from '../utils/storage';
 import api from '../utils/api';
 
 interface User {
@@ -31,14 +31,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const checkAuth = async () => {
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await storage.getItem('token');
       if (token) {
         const response = await api.get('/auth/me');
         setUser(response.data);
       }
     } catch (error) {
       console.error('Auth check failed:', error);
-      await AsyncStorage.removeItem('token');
+      try {
+        await storage.removeItem('token');
+      } catch (e) {
+        // Ignore storage errors
+      }
     } finally {
       setLoading(false);
     }
@@ -47,7 +51,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, password: string) => {
     try {
       const response = await api.post('/auth/login', { email, password });
-      await AsyncStorage.setItem('token', response.data.access_token);
+      await storage.setItem('token', response.data.access_token);
       setUser(response.data.user);
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'Login failed');
@@ -57,7 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const register = async (email: string, password: string, name: string) => {
     try {
       const response = await api.post('/auth/register', { email, password, name });
-      await AsyncStorage.setItem('token', response.data.access_token);
+      await storage.setItem('token', response.data.access_token);
       setUser(response.data.user);
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'Registration failed');
@@ -65,7 +69,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    await AsyncStorage.removeItem('token');
+    await storage.removeItem('token');
     setUser(null);
   };
 
