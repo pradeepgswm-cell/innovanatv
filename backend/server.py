@@ -104,7 +104,8 @@ class VideoCreate(BaseModel):
 
 
 class Video(BaseModel):
-    id: Optional[str] = Field(None, alias="_id")
+    id: Optional[str] = None
+    _id: Optional[str] = Field(None, alias="_id")
     title: str
     description: str
     cloudfront_url: str
@@ -303,10 +304,14 @@ async def get_videos(
         query["is_premium"] = is_premium
     
     videos = await db.videos.find(query).sort("upload_date", -1).skip(skip).limit(limit).to_list(limit)
+    result = []
     for video in videos:
-        video["_id"] = str(video["_id"])
+        video_id = str(video["_id"])
+        video["id"] = video_id
+        video["_id"] = video_id
+        result.append(Video(**video))
     
-    return [Video(**video) for video in videos]
+    return result
 
 
 @api_router.get("/videos/{video_id}", response_model=Video)
@@ -342,6 +347,7 @@ async def delete_video(video_id: str, current_user: User = Depends(get_current_u
 async def get_trending_videos(limit: int = 20):
     videos = await db.videos.find().sort("views_count", -1).limit(limit).to_list(limit)
     for video in videos:
+        video["id"] = str(video["_id"])
         video["_id"] = str(video["_id"])
     
     return [Video(**video) for video in videos]
@@ -358,6 +364,7 @@ async def search_videos(query: str, limit: int = 50):
     }).limit(limit).to_list(limit)
     
     for video in videos:
+        video["id"] = str(video["_id"])
         video["_id"] = str(video["_id"])
     
     return [Video(**video) for video in videos]
@@ -507,6 +514,7 @@ async def get_my_list(current_user: User = Depends(get_current_user)):
         if ObjectId.is_valid(video_id):
             video = await db.videos.find_one({"_id": ObjectId(video_id)})
             if video:
+                video["id"] = str(video["_id"])
                 video["_id"] = str(video["_id"])
                 videos.append(Video(**video))
     
