@@ -9,9 +9,11 @@ import {
   Alert,
   ScrollView,
   StatusBar,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Video, ResizeMode } from 'expo-av';
+import Video from 'react-native-video';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../utils/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -39,6 +41,9 @@ export default function VideoPlayerScreen() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [inMyList, setInMyList] = useState(false);
   const [relatedVideos, setRelatedVideos] = useState<VideoData[]>([]);
+  const [allEpisodes, setAllEpisodes] = useState<VideoData[]>([]);
+  const [currentEpisodeIndex, setCurrentEpisodeIndex] = useState(0);
+  const [isFullScreen, setIsFullScreen] = useState(true);
   const videoRef = useRef<Video>(null);
   const router = useRouter();
   const { user } = useAuth();
@@ -54,6 +59,14 @@ export default function VideoPlayerScreen() {
     try {
       const response = await api.get(`/videos/${id}`);
       setVideo(response.data);
+      
+      // If it's part of a series, fetch all episodes
+      if (response.data.series_id) {
+        const episodesResponse = await api.get(`/series/${response.data.series_id}/episodes`);
+        setAllEpisodes(episodesResponse.data);
+        const currentIndex = episodesResponse.data.findIndex((ep: VideoData) => ep.id === id);
+        setCurrentEpisodeIndex(currentIndex);
+      }
       
       // Fetch related videos (same genre)
       const relatedResponse = await api.get('/videos', {
@@ -96,14 +109,18 @@ export default function VideoPlayerScreen() {
     }
   };
 
-  const handlePlaybackStatusUpdate = (status: any) => {
-    if (status.isLoaded) {
-      setIsPlaying(status.isPlaying);
-      
-      // Save watch history every 5 seconds
-      if (status.positionMillis && status.positionMillis % 5000 < 100) {
-        saveWatchHistory(status.positionMillis / 1000, status.didJustFinish);
-      }
+  const handleVideoEnd = () => {
+    // Auto-play next episode if available
+    if (allEpisodes.length > 0 && currentEpisodeIndex < allEpisodes.length - 1) {
+      const nextEpisode = allEpisodes[currentEpisodeIndex + 1];
+      router.replace(`/video/${nextEpisode.id}` as any);
+    }
+  };
+
+  const handleProgress = (data: any) => {
+    // Save watch history every 5 seconds
+    if (data.currentTime && Math.floor(data.currentTime) % 5 === 0) {
+      saveWatchHistory(data.currentTime, false);
     }
   };
 
@@ -119,14 +136,23 @@ export default function VideoPlayerScreen() {
     }
   };
 
-  const togglePlayPause = async () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        await videoRef.current.pauseAsync();
-      } else {
-        await videoRef.current.playAsync();
-      }
+  const goToPreviousEpisode = () => {
+    if (currentEpisodeIndex > 0) {
+      const prevEpisode = allEpisodes[currentEpisodeIndex - 1];
+      router.replace(`/video/${prevEpisode.id}` as any);
     }
+  };
+
+  const goToNextEpisode = () => {
+    if (currentEpisodeIndex < allEpisodes.length - 1) {
+      const nextEpisode = allEpisodes[currentEpisodeIndex + 1];
+      router.replace(`/video/${nextEpisode.id}` as any);
+    }
+  };
+
+  const exitFullScreen = () => {
+    setIsFullScreen(false);
+    router.back();
   };
 
   if (loading) {
@@ -144,89 +170,156 @@ export default function VideoPlayerScreen() {
   // Check if premium and user doesn't have access
   const needsPremium = video.is_premium && user?.subscription_status !== 'premium';
 
+  if (needsPremium) {
+    return (
+      <View style={styles.container}>
+        <StatusBar hidden />
+        <View style={styles.premiumBlocker}>
+          <TouchableOpacity style={styles.closeButton} onPress={exitFullScreen}>
+            <Ionicons name="close" size={32} color="#fff" />
+          </TouchableOpacity>
+          <Ionicons name="lock-closed" size={64} color="#fff" />
+          <Text style={styles.premiumText}>Premium Content</Text>
+          <Text style={styles.premiumSubtext}>Upgrade to premium to watch this show</Text>
+          <TouchableOpacity
+            style={styles.upgradeButton}
+            onPress={() => router.push('/subscription' as any)}
+          >
+            <Text style={styles.upgradeButtonText}>View Plans</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar hidden />
       
-      {/* Video Player */}
-      <View style={styles.videoContainer}>
-        {needsPremium ? (
-          <View style={styles.premiumBlocker}>
-            <Ionicons name="lock-closed" size={64} color="#fff" />
-            <Text style={styles.premiumText}>Premium Content</Text>
-            <Text style={styles.premiumSubtext}>Upgrade to premium to watch this show</Text>
-            <TouchableOpacity style={styles.upgradeButton}>
-              <Text style={styles.upgradeButtonText}>Upgrade Now</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
+      {/* Full-Screen Video Player */}
+      {isFullScreen ? (
+        <View style={styles.fullScreenContainer}>
           <Video
             ref={videoRef}
             source={{ uri: video.cloudfront_url }}
-            style={styles.video}
-            useNativeControls
-            resizeMode={ResizeMode.CONTAIN}
-            shouldPlay
-            onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+            style={styles.fullScreenVideo}
+            controls
+            resizeMode="contain"
+            paused={!isPlaying}
+            onEnd={handleVideoEnd}
+            onProgress={handleProgress}
           />
-        )}
-        
-        {/* Back Button */}
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={28} color="#fff" />
-        </TouchableOpacity>
-      </View>
+          
+          {/* Exit Full Screen Button */}
+          <TouchableOpacity style={styles.exitButton} onPress={exitFullScreen}>
+            <Ionicons name="close" size={32} color="#fff" />
+          </TouchableOpacity>
 
-      {/* Video Info */}
-      <ScrollView style={styles.infoContainer}>
-        <View style={styles.header}>
-          <View style={styles.titleContainer}>
-            <Text style={styles.title}>{video.title}</Text>
+          {/* Episode Navigation */}
+          {allEpisodes.length > 0 && (
+            <View style={styles.episodeNavigation}>
+              <TouchableOpacity
+                style={[
+                  styles.navButton,
+                  currentEpisodeIndex === 0 && styles.navButtonDisabled,
+                ]}
+                onPress={goToPreviousEpisode}
+                disabled={currentEpisodeIndex === 0}
+              >
+                <Ionicons
+                  name="play-skip-back"
+                  size={24}
+                  color={currentEpisodeIndex === 0 ? '#666' : '#fff'}
+                />
+                <Text style={styles.navButtonText}>Previous</Text>
+              </TouchableOpacity>
+
+              <View style={styles.episodeInfo}>
+                <Text style={styles.episodeText}>
+                  Episode {video.episode_number || currentEpisodeIndex + 1} of {allEpisodes.length}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.navButton,
+                  currentEpisodeIndex === allEpisodes.length - 1 && styles.navButtonDisabled,
+                ]}
+                onPress={goToNextEpisode}
+                disabled={currentEpisodeIndex === allEpisodes.length - 1}
+              >
+                <Text style={styles.navButtonText}>Next</Text>
+                <Ionicons
+                  name="play-skip-forward"
+                  size={24}
+                  color={
+                    currentEpisodeIndex === allEpisodes.length - 1 ? '#666' : '#fff'
+                  }
+                />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Video Title Overlay */}
+          <View style={styles.titleOverlay}>
+            <Text style={styles.videoTitle}>{video.title}</Text>
             {video.episode_number && (
-              <Text style={styles.episode}>Episode {video.episode_number}</Text>
+              <Text style={styles.episodeLabel}>Episode {video.episode_number}</Text>
             )}
           </View>
-          <TouchableOpacity onPress={toggleMyList}>
-            <Ionicons
-              name={inMyList ? 'bookmark' : 'bookmark-outline'}
-              size={28}
-              color={inMyList ? '#e50914' : '#fff'}
-            />
-          </TouchableOpacity>
         </View>
-
-        <View style={styles.meta}>
-          <Text style={styles.genre}>{video.genre}</Text>
-          <Text style={styles.separator}>•</Text>
-          <Text style={styles.views}>{video.views_count} views</Text>
-          <Text style={styles.separator}>•</Text>
-          <Text style={styles.duration}>{Math.floor(video.duration / 60)} min</Text>
-        </View>
-
-        <Text style={styles.description}>{video.description}</Text>
-
-        {/* Related Videos */}
-        {relatedVideos.length > 0 && (
-          <View style={styles.relatedSection}>
-            <Text style={styles.relatedTitle}>More Like This</Text>
-            {relatedVideos.map((relatedVideo) => (
-              <TouchableOpacity
-                key={relatedVideo.id}
-                style={styles.relatedCard}
-                onPress={() => router.push(`/video/${relatedVideo.id}` as any)}
-              >
-                <View style={styles.relatedInfo}>
-                  <Text style={styles.relatedVideoTitle} numberOfLines={2}>
-                    {relatedVideo.title}
-                  </Text>
-                  <Text style={styles.relatedGenre}>{relatedVideo.genre}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="#666" />
-              </TouchableOpacity>
-            ))}
+      ) : (
+        /* Video Info Section (when not in fullscreen) */
+        <ScrollView style={styles.infoContainer}>
+          <View style={styles.header}>
+            <View style={styles.titleContainer}>
+              <Text style={styles.title}>{video.title}</Text>
+              {video.episode_number && (
+                <Text style={styles.episode}>Episode {video.episode_number}</Text>
+              )}
+            </View>
+            <TouchableOpacity onPress={toggleMyList}>
+              <Ionicons
+                name={inMyList ? 'bookmark' : 'bookmark-outline'}
+                size={28}
+                color={inMyList ? '#e50914' : '#fff'}
+              />
+            </TouchableOpacity>
           </View>
-        )}
-      </ScrollView>
+
+          <View style={styles.meta}>
+            <Text style={styles.genre}>{video.genre}</Text>
+            <Text style={styles.separator}>•</Text>
+            <Text style={styles.views}>{video.views_count} views</Text>
+            <Text style={styles.separator}>•</Text>
+            <Text style={styles.duration}>{Math.floor(video.duration / 60)} min</Text>
+          </View>
+
+          <Text style={styles.description}>{video.description}</Text>
+
+          {/* Related Videos */}
+          {relatedVideos.length > 0 && (
+            <View style={styles.relatedSection}>
+              <Text style={styles.relatedTitle}>More Like This</Text>
+              {relatedVideos.map((relatedVideo) => (
+                <TouchableOpacity
+                  key={relatedVideo.id}
+                  style={styles.relatedCard}
+                  onPress={() => router.push(`/video/${relatedVideo.id}` as any)}
+                >
+                  <View style={styles.relatedInfo}>
+                    <Text style={styles.relatedVideoTitle} numberOfLines={2}>
+                      {relatedVideo.title}
+                    </Text>
+                    <Text style={styles.relatedGenre}>{relatedVideo.genre}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="#666" />
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -242,30 +335,94 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  videoContainer: {
-    width: width,
-    height: height * 0.4,
+  fullScreenContainer: {
+    flex: 1,
     backgroundColor: '#000',
     justifyContent: 'center',
+  },
+  fullScreenVideo: {
+    width: width,
+    height: height,
+  },
+  exitButton: {
+    position: 'absolute',
+    top: 44,
+    right: 16,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 20,
+    padding: 8,
+    zIndex: 10,
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 44,
+    right: 16,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 20,
+    padding: 8,
+    zIndex: 10,
+  },
+  episodeNavigation: {
+    position: 'absolute',
+    bottom: 100,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 16,
+  },
+  navButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(229, 9, 20, 0.8)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  navButtonDisabled: {
+    backgroundColor: 'rgba(102, 102, 102, 0.5)',
+  },
+  navButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginHorizontal: 4,
+  },
+  episodeInfo: {
     alignItems: 'center',
   },
-  video: {
-    width: '100%',
-    height: '100%',
+  episodeText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
-  backButton: {
+  titleOverlay: {
     position: 'absolute',
     top: 44,
     left: 16,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 20,
-    padding: 8,
+    right: 60,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 12,
+    borderRadius: 8,
+  },
+  videoTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  episodeLabel: {
+    fontSize: 14,
+    color: '#ccc',
+    marginTop: 4,
   },
   premiumBlocker: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#000',
     paddingHorizontal: 32,
   },
   premiumText: {

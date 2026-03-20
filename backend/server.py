@@ -548,6 +548,107 @@ async def get_subscription_status(current_user: User = Depends(get_current_user)
     }
 
 
+# ==================== RAZORPAY PAYMENT ====================
+
+class PaymentOrder(BaseModel):
+    plan_id: str
+    amount: int  # in paise
+
+class PaymentVerification(BaseModel):
+    order_id: str
+    payment_id: str
+    signature: str
+
+@api_router.post("/subscription/create-order")
+async def create_payment_order(order: PaymentOrder, current_user: User = Depends(get_current_user)):
+    """Create Razorpay order for subscription"""
+    try:
+        # For demo purposes, we'll create a mock order
+        # In production, use: razorpay.Client(auth=(key_id, key_secret))
+        order_id = f"order_demo_{datetime.utcnow().timestamp()}"
+        
+        # Store order in database
+        order_data = {
+            "order_id": order_id,
+            "user_id": current_user.id,
+            "plan_id": order.plan_id,
+            "amount": order.amount,
+            "currency": "INR",
+            "status": "created",
+            "created_at": datetime.utcnow()
+        }
+        
+        await db.payment_orders.insert_one(order_data)
+        
+        return {
+            "order_id": order_id,
+            "amount": order.amount,
+            "currency": "INR",
+            "key_id": "rzp_test_demo"  # Replace with actual Razorpay key
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.post("/subscription/verify-payment")
+async def verify_payment(verification: PaymentVerification, current_user: User = Depends(get_current_user)):
+    """Verify Razorpay payment and activate subscription"""
+    try:
+        # Find the order
+        order = await db.payment_orders.find_one({"order_id": verification.order_id})
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        
+        # In production, verify the signature using Razorpay SDK
+        # razorpay_client.utility.verify_payment_signature(...)
+        
+        # For demo, we'll assume payment is successful
+        # Update order status
+        await db.payment_orders.update_one(
+            {"order_id": verification.order_id},
+            {
+                "$set": {
+                    "payment_id": verification.payment_id,
+                    "signature": verification.signature,
+                    "status": "paid",
+                    "paid_at": datetime.utcnow()
+                }
+            }
+        )
+        
+        # Determine subscription duration based on plan
+        plan_duration_map = {
+            "monthly": 30,
+            "quarterly": 90,
+            "yearly": 365
+        }
+        
+        days = plan_duration_map.get(order["plan_id"], 30)
+        expiry = datetime.utcnow() + timedelta(days=days)
+        
+        # Update user subscription
+        await db.users.update_one(
+            {"_id": ObjectId(current_user.id)},
+            {
+                "$set": {
+                    "subscription_status": "premium",
+                    "subscription_expiry": expiry,
+                    "subscription_plan": order["plan_id"]
+                }
+            }
+        )
+        
+        return {
+            "message": "Payment verified successfully",
+            "subscription_status": "premium",
+            "subscription_expiry": expiry
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== GENRES ====================
 
 @api_router.get("/genres")
