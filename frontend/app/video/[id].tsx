@@ -13,7 +13,7 @@ import {
   FlatList,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import Video from 'react-native-video';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../utils/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -114,14 +114,7 @@ export default function VideoPlayerScreen() {
     // Auto-play next episode if available
     if (allEpisodes.length > 0 && currentEpisodeIndex < allEpisodes.length - 1) {
       const nextEpisode = allEpisodes[currentEpisodeIndex + 1];
-      router.replace(`/video/${nextEpisode.id}` as any);
-    }
-  };
-
-  const handleProgress = (data: any) => {
-    // Save watch history every 5 seconds
-    if (data.currentTime && Math.floor(data.currentTime) % 5 === 0) {
-      saveWatchHistory(data.currentTime, false);
+      router.push(`/video/${nextEpisode.id}` as any);
     }
   };
 
@@ -208,11 +201,24 @@ export default function VideoPlayerScreen() {
             ref={videoRef}
             source={{ uri: video.cloudfront_url }}
             style={styles.fullScreenVideo}
-            controls
-            resizeMode="contain"
-            paused={!isPlaying}
-            onEnd={handleVideoEnd}
-            onProgress={handleProgress}
+            useNativeControls
+            resizeMode={ResizeMode.CONTAIN}
+            shouldPlay
+            onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
+              if (status.isLoaded) {
+                setIsPlaying(status.isPlaying);
+                
+                // Save watch history every 5 seconds
+                if (status.positionMillis && Math.floor(status.positionMillis / 1000) % 5 === 0) {
+                  saveWatchHistory(status.positionMillis / 1000, status.didJustFinish || false);
+                }
+                
+                // Auto-play next episode when video ends
+                if (status.didJustFinish) {
+                  handleVideoEnd();
+                }
+              }
+            }}
           />
           
           {/* Exit Full Screen Button */}
