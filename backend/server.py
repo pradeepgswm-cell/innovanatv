@@ -105,7 +105,6 @@ class VideoCreate(BaseModel):
 
 class Video(BaseModel):
     id: Optional[str] = None
-    _id: Optional[str] = Field(None, alias="_id")
     title: str
     description: str
     cloudfront_url: str
