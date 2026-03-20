@@ -7,12 +7,17 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
-} from 'react-native';
+  Modal,
+  Dimensions,
+} from 'react';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { WebView } from 'react-native-webview';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../utils/api';
+
+const { width, height } = Dimensions.get('window');
 
 interface Plan {
   id: string;
@@ -66,9 +71,105 @@ const plans: Plan[] = [
   },
 ];
 
+// HTML page for Razorpay payment
+const getRazorpayHTML = (orderData: any) => `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      background: #000;
+      color: #fff;
+    }
+    .container {
+      text-align: center;
+      padding: 20px;
+    }
+    .loader {
+      border: 4px solid #333;
+      border-top: 4px solid #e50914;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Processing Payment...</h2>
+    <div class="loader"></div>
+    <p>Please wait while we redirect you to Razorpay</p>
+  </div>
+  <script>
+    var options = {
+      "key": "${orderData.key_id}",
+      "amount": "${orderData.amount}",
+      "currency": "${orderData.currency}",
+      "name": "Innovana TV",
+      "description": "Premium Subscription",
+      "order_id": "${orderData.order_id}",
+      "handler": function (response){
+        // Send success message to React Native
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          status: 'success',
+          payment_id: response.razorpay_payment_id,
+          order_id: response.razorpay_order_id,
+          signature: response.razorpay_signature
+        }));
+      },
+      "prefill": {
+        "name": "User",
+        "email": "user@innovana.tv"
+      },
+      "theme": {
+        "color": "#e50914"
+      },
+      "modal": {
+        "ondismiss": function(){
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            status: 'cancelled'
+          }));
+        }
+      }
+    };
+    
+    var rzp = new Razorpay(options);
+    rzp.on('payment.failed', function (response){
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        status: 'failed',
+        error: response.error
+      }));
+    });
+    
+    // Auto-open payment modal
+    setTimeout(function() {
+      rzp.open();
+    }, 1000);
+  </script>
+</body>
+</html>
+`;
+
 export default function SubscriptionScreen() {
-  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(plans[1]); // Default to quarterly
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(plans[1]);
   const [loading, setLoading] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentHtml, setPaymentHtml] = useState('');
+  const [orderData, setOrderData] = useState<any>(null);
   const router = useRouter();
   const { user, refreshUser } = useAuth();
 
@@ -87,54 +188,63 @@ export default function SubscriptionScreen() {
         amount: selectedPlan.price * 100, // Convert to paise
       });
 
-      const { order_id, amount, currency } = orderResponse.data;
+      const orderDataReceived = orderResponse.data;
+      setOrderData(orderDataReceived);
 
-      // In a real implementation, you would use react-native-razorpay
-      // For now, we'll simulate the payment
-      Alert.alert(
-        'Payment Gateway',
-        `You would be redirected to Razorpay to pay ₹${selectedPlan.price} for ${selectedPlan.name} plan.\n\nOrder ID: ${order_id}\n\nFor demo purposes, click OK to simulate successful payment.`,
-        [
-          {
-            text: 'Cancel',
-            style: 'cancel',
-            onPress: () => setLoading(false),
-          },
-          {
-            text: 'OK (Simulate Payment)',
-            onPress: async () => {
-              try {
-                // Simulate payment verification
-                await api.post('/subscription/verify-payment', {
-                  order_id,
-                  payment_id: 'pay_demo_' + Date.now(),
-                  signature: 'demo_signature',
-                });
-
-                await refreshUser();
-                Alert.alert(
-                  'Success!',
-                  `You are now a premium member! Your ${selectedPlan.name} subscription is active.`,
-                  [
-                    {
-                      text: 'Start Watching',
-                      onPress: () => router.back(),
-                    },
-                  ]
-                );
-              } catch (error: any) {
-                Alert.alert('Error', error.response?.data?.detail || 'Payment verification failed');
-              } finally {
-                setLoading(false);
-              }
-            },
-          },
-        ]
-      );
+      // Generate Razorpay HTML
+      const html = getRazorpayHTML(orderDataReceived);
+      setPaymentHtml(html);
+      setShowPaymentModal(true);
+      setLoading(false);
     } catch (error: any) {
       console.error('Payment error:', error);
       Alert.alert('Error', error.response?.data?.detail || 'Failed to create payment order');
       setLoading(false);
+    }
+  };
+
+  const handleWebViewMessage = async (event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+
+      if (data.status === 'success') {
+        // Payment successful, verify on backend
+        setShowPaymentModal(false);
+        setLoading(true);
+
+        try {
+          await api.post('/subscription/verify-payment', {
+            order_id: data.order_id,
+            payment_id: data.payment_id,
+            signature: data.signature,
+          });
+
+          await refreshUser();
+          setLoading(false);
+
+          Alert.alert(
+            'Success! 🎉',
+            `You are now a premium member! Your ${selectedPlan?.name} subscription is active.`,
+            [
+              {
+                text: 'Start Watching',
+                onPress: () => router.back(),
+              },
+            ]
+          );
+        } catch (error: any) {
+          setLoading(false);
+          Alert.alert('Error', error.response?.data?.detail || 'Payment verification failed');
+        }
+      } else if (data.status === 'cancelled') {
+        setShowPaymentModal(false);
+        Alert.alert('Payment Cancelled', 'You can try again anytime.');
+      } else if (data.status === 'failed') {
+        setShowPaymentModal(false);
+        Alert.alert('Payment Failed', data.error?.description || 'Please try again.');
+      }
+    } catch (error) {
+      console.error('Error handling webview message:', error);
     }
   };
 
@@ -271,6 +381,29 @@ export default function SubscriptionScreen() {
           Subscription automatically renews unless cancelled.
         </Text>
       </ScrollView>
+
+      {/* Razorpay Payment Modal */}
+      <Modal
+        visible={showPaymentModal}
+        animationType="slide"
+        onRequestClose={() => setShowPaymentModal(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Complete Payment</Text>
+            <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
+              <Ionicons name="close" size={28} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          <WebView
+            source={{ html: paymentHtml }}
+            onMessage={handleWebViewMessage}
+            javaScriptEnabled
+            domStorageEnabled
+            style={{ flex: 1 }}
+          />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -459,5 +592,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 32,
     lineHeight: 18,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
   },
 });

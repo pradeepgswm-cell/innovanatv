@@ -50,10 +50,11 @@ export default function VideoPlayerScreen() {
 
   useEffect(() => {
     if (id) {
+      setLoading(true);
       fetchVideo();
       checkIfInMyList();
     }
-  }, [id]);
+  }, [id]); // Re-run when ID changes
 
   const fetchVideo = async () => {
     try {
@@ -137,16 +138,20 @@ export default function VideoPlayerScreen() {
   };
 
   const goToPreviousEpisode = () => {
-    if (currentEpisodeIndex > 0) {
+    if (currentEpisodeIndex > 0 && allEpisodes.length > 0) {
       const prevEpisode = allEpisodes[currentEpisodeIndex - 1];
-      router.replace(`/video/${prevEpisode.id}` as any);
+      console.log('Going to previous episode:', prevEpisode.id, prevEpisode.title);
+      // Force reload by using push instead of replace
+      router.push(`/video/${prevEpisode.id}` as any);
     }
   };
 
   const goToNextEpisode = () => {
-    if (currentEpisodeIndex < allEpisodes.length - 1) {
+    if (currentEpisodeIndex < allEpisodes.length - 1 && allEpisodes.length > 0) {
       const nextEpisode = allEpisodes[currentEpisodeIndex + 1];
-      router.replace(`/video/${nextEpisode.id}` as any);
+      console.log('Going to next episode:', nextEpisode.id, nextEpisode.title);
+      // Force reload by using push instead of replace
+      router.push(`/video/${nextEpisode.id}` as any);
     }
   };
 
